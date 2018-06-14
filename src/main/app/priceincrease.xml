@@ -1,0 +1,377 @@
+<?xml version="1.0" encoding="UTF-8"?>
+
+<mule xmlns:tracking="http://www.mulesoft.org/schema/mule/ee/tracking" xmlns:json="http://www.mulesoft.org/schema/mule/json" xmlns:file="http://www.mulesoft.org/schema/mule/file" xmlns:dw="http://www.mulesoft.org/schema/mule/ee/dw" xmlns:metadata="http://www.mulesoft.org/schema/mule/metadata" xmlns:sfdc="http://www.mulesoft.org/schema/mule/sfdc" xmlns="http://www.mulesoft.org/schema/mule/core" xmlns:doc="http://www.mulesoft.org/schema/mule/documentation"
+	xmlns:spring="http://www.springframework.org/schema/beans" 
+	xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+	xsi:schemaLocation="http://www.springframework.org/schema/beans http://www.springframework.org/schema/beans/spring-beans-current.xsd
+http://www.mulesoft.org/schema/mule/core http://www.mulesoft.org/schema/mule/core/current/mule.xsd
+http://www.mulesoft.org/schema/mule/sfdc http://www.mulesoft.org/schema/mule/sfdc/current/mule-sfdc.xsd
+http://www.mulesoft.org/schema/mule/file http://www.mulesoft.org/schema/mule/file/current/mule-file.xsd
+http://www.mulesoft.org/schema/mule/ee/dw http://www.mulesoft.org/schema/mule/ee/dw/current/dw.xsd
+http://www.mulesoft.org/schema/mule/json http://www.mulesoft.org/schema/mule/json/current/mule-json.xsd
+http://www.mulesoft.org/schema/mule/ee/tracking http://www.mulesoft.org/schema/mule/ee/tracking/current/mule-tracking-ee.xsd">
+    <file:connector name="File" autoDelete="false" streaming="true" validateConnections="true" pollingFrequency="5000000" doc:name="File" outputAppend="true"/>
+    <sfdc:config name="Salesforce__Basic_Authentication" username="hemanth.gadde@stericycle.com.sfdcdev1" password="Indiaindia9" url="https://test.salesforce.com/services/Soap/u/37.0" doc:name="Salesforce: Basic Authentication" disableSessionInvalidation="true"/>
+    <flow name="priceincreaseFlow">
+        <file:inbound-endpoint path="\\stericorp.com\shares\SteriVision\Price Increase\Dev\Inbound" connector-ref="File" responseTimeout="10000" doc:name="File" metadata:id="80f3a8fd-55ae-4074-b601-97f6840162ec" pollingFrequency="300000" moveToDirectory="\\stericorp.com\shares\SteriVision\Price Increase\Dev\Processed"/>
+        <dw:transform-message doc:name="Transform Message  To Java Bean">
+            <dw:set-payload><![CDATA[%dw 1.0
+%output application/java
+---
+payload]]></dw:set-payload>
+        </dw:transform-message>
+        <choice doc:name="Choice - check payload size &gt; 0">
+            <when expression="#[payload.size() &gt; 0]">
+                        <foreach doc:name="For Each - Iterate for each sku">
+            <set-variable variableName="currentRecord" value="#[payload]" doc:name="Variable"/>
+                    <choice doc:name="Choice - check decimal/percentage">
+                        <when expression="#[flowVars.currentRecord.'Percentage Increase' &lt; 100 and flowVars.currentRecord.'Percentage Increase'.substring((flowVars.currentRecord.'Percentage Increase'.indexOf(&quot;.&quot;) + 1),flowVars.currentRecord.'Percentage Increase'.length()).length() &lt; 3]">
+                            <logger message="The decimal and percentage condition satisfied" level="INFO" doc:name="Logger"/>
+                            <dw:transform-message doc:name="Transform Message to Java Bean" metadata:id="0926ec9c-9f59-4621-8c44-7f6c031f029e">
+                                <dw:set-variable variableName="rowData"><![CDATA[%dw 1.0
+%output application/java
+---
+payload]]></dw:set-variable>
+                            </dw:transform-message>
+                            <expression-component doc:name="Expression -null check sfdcId and customerNo"><![CDATA[flowVars.whereClause = "";
+if ((flowVars.rowData.'Customer Number')  != '' and flowVars.rowData.'Customer Number'  != null ) {
+	flowVars.whereClause =  "Dynamics_AX_Customer_Number__c ='" +flowVars.rowData.'Customer Number'+ "'";
+}
+if (flowVars.rowData.'SFDC ID'  != "" ){
+	if (flowVars.whereClause != "") {
+		flowVars.whereClause = flowVars.whereClause +" AND id ='" +flowVars.rowData.'SFDC ID'+ "'";
+	} else{	
+		flowVars.whereClause =  " id ='" +flowVars.rowData.'SFDC ID'+ "'";
+	}
+}]]></expression-component>
+
+                            <sfdc:query config-ref="Salesforce__Basic_Authentication" query="SELECT Id from Account where HCS_Tower__c=false and  #[flowVars.whereClause]" doc:name="Salesforce - querying accounts"/>
+                            <json:object-to-json-transformer doc:name="Object to JSON"/>
+                            <json:json-to-object-transformer returnClass="java.lang.Object" doc:name="JSON to Object"/>
+                            <expression-component doc:name="Expression"><![CDATA[
+flowVars.condition = "";
+if (flowVars.rowData.get('Categories Affected')  != null and  flowVars.rowData.get('Categories Affected') != '') {
+	flowVars.condition =  flowVars.condition+ " and Category__c ='" +flowVars.rowData.get('Categories Affected')+ "'";
+	if (flowVars.rowData.get('Categories Excluded') != null and flowVars.rowData.get('Categories Excluded') != '') {
+		flowVars.condition =  flowVars.condition+ " or Category__c !='" +flowVars.rowData.get('Categories Excluded')+ "'";
+	 }
+}
+else {
+if (flowVars.rowData.get('Categories Excluded') != null and flowVars.rowData.get('Categories Excluded') != '') {
+		flowVars.condition =  flowVars.condition+ " and Category__c !='" +flowVars.rowData.get('Categories Excluded')+ "'";
+}
+}
+if (flowVars.rowData.get('Specific item affected')  != null and flowVars.rowData.get('Specific item affected')  != '') {
+	flowVars.condition =  flowVars.condition+ " and Product_Name__c ='" +flowVars.rowData.get('Specific item affected')+ "'";
+	if (flowVars.rowData.get('Specific item excluded') != null and flowVars.rowData.get('Specific item excluded') != '') {
+		flowVars.condition =  flowVars.condition+ " or Product_Name__c !='" +flowVars.rowData.get('Specific item excluded')+ "'";
+	 }
+}
+else {
+if (flowVars.rowData.get('Specific item excluded') != null and flowVars.rowData.get('Specific item excluded') != '') {
+		flowVars.condition =  flowVars.condition+ " and Product_Name__c !='" +flowVars.rowData.get('Specific item excluded')+ "'";
+}
+}]]></expression-component>
+                            <sfdc:query config-ref="Salesforce__Basic_Authentication" query="SELECT Account__c,Active__c,Approved_Destination__c,Available_for_Work_Orders__c,Case_by_case_pricing__c,Category__c,ConnectionReceivedId,ConnectionSentId,Contract_Id__c,Contract__c,CreatedById,CreatedDate,Current_Threshold_Value__c,Customer_Id__c,Customer_Price_Book__c,Description__c,Expiration_Date__c,Generator__c,Id,IsDeleted,Item_Description__c,LastActivityDate,LastModifiedById,LastModifiedDate,LastReferencedDate,LastViewedDate,Location_Price_Book__c,Minimum_Bill_Qty__c,Minimum_Price__c,Minimum_Type__c,Name,OwnerId,Preview_Calculate_By__c,Preview_ID__c,Preview_SKU__c,Preview_UOM__c,Price_Entry_Id__c,Price_Increase__c,Price_Source__c,Price__c,Pricing_Applied__c,Product_Description__c,Product_Family__c,Product_Name__c,Product__c,Profile_Price_Entry_Description__c,Profile_Special_Pricing__c,Programs__c,Project_Id__c,Quote_Proposal__c,RecordTypeId,SFDC_ID__c,SKU__c,SMAX_PS_Is_Broker_Formula__c,SVMX_PS_Profile_Process_Code__c,Segment__c,Source__c,Stericycle_Location__c,SubscriptionPriceEndDate__c,SubscriptionPriceStartDate__c,SubscriptionType__c,Subscription_Price__c,SystemModstamp,Territory__c,Threshold_Price__c,Threshold__c,Type__c,UOM__c,Verified__c,Waste_Profile__c,Zone__c FROM Price_Book_Entry__c where (Account__c = '#[payload[0].Id]' and Active__c = true  #[flowVars.condition])" doc:name="Salesforce - Get SKU Records"/>
+                            <json:object-to-json-transformer doc:name="Object to JSON"/>
+                            <json:json-to-object-transformer returnClass="java.lang.Object" mimeType="application/java" doc:name="JSON to Object"/>
+                            <dw:transform-message doc:name="Transform Message - Payload for deactivating SKU" metadata:id="e53fb25d-9377-466d-9bab-d59279be074c">
+                                <dw:input-payload/>
+                                <dw:set-payload><![CDATA[%dw 1.0
+%output application/java
+---
+payload map ((payload01 , indexOfPayload01) -> {
+//(flowVars.rowData map ((payload02 , indexOfPayload00) -> {
+	Id: payload01.Id,
+	// IsDeleted: payload01.IsDeleted,
+	// Name: payload01.Name,
+	// CreatedDate: payload01.CreatedDate,
+	// LastModifiedDate: payload01.LastModifiedDate,
+	// SystemModstamp: payload01.SystemModstamp,
+	LastActivityDate: payload01.LastActivityDate,
+	// LastViewedDate: payload01.LastViewedDate,
+	// LastReferencedDate: payload01.LastReferencedDate,
+	// Available_for_Work_Orders__c: payload01.Available_for_Work_Orders__c,
+	Case_by_case_pricing__c: payload01.Case_by_case_pricing__c as :boolean,
+	// Category__c: payload01.Category__c,
+	// SMAX_PS_Is_Broker_Formula__c: payload01.SMAX_PS_Is_Broker_Formula__c,
+	// Description__c: payload01.Description__c,
+	Item_Description__c: payload01.Item_Description__c,
+	Preview_Calculate_By__c: payload01.Preview_Calculate_By__c,
+	Preview_ID__c: payload01.Preview_ID__c,
+	Preview_UOM__c: payload01.Preview_UOM__c,
+	Price_Entry_Id__c: payload01.Price_Entry_Id__c,
+	// Price_Source__c: payload01.Price_Source__c,
+	Price__c: payload01.Price__c,
+	Product_Description__c: payload01.Product_Description__c,
+	Product_Family__c: payload01.Product_Family__c,
+	// Product_Name__c: payload01.Product_Name__c,
+	Profile_Price_Entry_Description__c: payload01.Profile_Price_Entry_Description__c,
+	Profile_Special_Pricing__c: payload01.Profile_Special_Pricing__c as :boolean,
+	// SFDC_ID__c: payload01.SFDC_ID__c,
+	// Type__c: payload01.Type__c,
+	UOM__c: payload01.UOM__c,
+	// Customer_Id__c: payload01.Customer_Id__c,
+	// SVMX_PS_Profile_Process_Code__c: payload01.SVMX_PS_Profile_Process_Code__c,
+	Project_Id__c: payload01.Project_Id__c,
+	Contract__c: payload01.Contract__c,
+	
+	//Contract_Id__c: payload01.Contract_Id__c,
+	Threshold_Price__c: payload01.Threshold_Price__c,
+	Subscription_Price__c: payload01.Subscription_Price__c,
+	Minimum_Price__c: payload01.Minimum_Price__c,
+	Minimum_Bill_Qty__c: payload01.Minimum_Bill_Qty__c,
+	Active__c: false,
+	Pricing_Applied__c: payload01.Pricing_Applied__c,
+	Minimum_Type__c: payload01.Minimum_Type__c,
+	Current_Threshold_Value__c: payload01.Current_Threshold_Value__c,
+	Source__c: payload01.Source__c,
+	Verified__c: payload01.Verified__c as :boolean,
+	//Expiration_Date__c: ((payload01.Expiration_Date__c ++ "T01:09:26") as :localdatetime {format: "yyyy-dd-MM'T'HH:mm:ss"}),
+	Segment__c: payload01.Segment__c,
+	// SKU__c: payload01.SKU__c,
+	Preview_SKU__c: payload01.Preview_SKU__c,
+	(SubscriptionPriceStartDate__c:( (payload01.SubscriptionPriceStartDate__c ++ "T00:00:00") as :localdatetime {format: "yyyy-MM-dd'T'HH:mm:ss"})) when (payload01.SubscriptionPriceStartDate__c != null and payload01.SubscriptionPriceStartDate__c != "" ),
+ (SubscriptionPriceEndDate__c:(( payload01.SubscriptionPriceEndDate__c ++ "T00:00:00") as :localdatetime {format: "yyyy-MM-dd'T'HH:mm:ss"}))when (payload01.SubscriptionPriceEndDate__c != null and payload01.SubscriptionPriceEndDate__c != "" ),
+	
+	SubscriptionType__c: payload01.SubscriptionType__c,
+	// Zone__c: payload01.Zone__c,
+	Price_Increase__c: payload01.Price_Increase__c
+
+})]]></dw:set-payload>
+                                <dw:set-variable variableName="sku"><![CDATA[%dw 1.0
+%output application/java
+---
+payload]]></dw:set-variable>
+                            </dw:transform-message>
+                            <dw:transform-message doc:name="Transform Message- set flowVar allIds">
+                                <dw:set-variable variableName="allIds"><![CDATA[%dw 1.0
+%output application/java
+---
+payload]]></dw:set-variable>
+                            </dw:transform-message>
+                            <sfdc:update config-ref="Salesforce__Basic_Authentication" type="Price_Book_Entry__c" doc:name="Salesforce Deactivate SKU">
+                                <sfdc:objects ref="#[payload]"/>
+                            </sfdc:update>
+                            <expression-component doc:name="Expression"><![CDATA[flowVars.priceIncrease = flowVars.rowData.get("Percentage Increase");
+flowVars.productName = flowVars.rowData.get("Specific item affected");
+flowVars.productNameExcluded = flowVars.rowData.get("Specific item excluded");]]></expression-component>
+                            <dw:transform-message doc:name="Transform Message to Payload for creating new SKU" metadata:id="ffe259a3-eba1-4ae8-94dd-25bf009b16e3">
+                                <dw:input-variable mimeType="application/java" variableName="rowData"/>
+                                <dw:set-payload><![CDATA[%dw 1.0
+%output application/java
+---
+flowVars.sku map ((payload01 , indexOfPayload01) -> {
+	Account__c: payload01.Account__c,
+	Case_by_case_pricing__c: payload01.Case_by_case_pricing__c as :boolean,
+	// Category__c: payload01.Category__c,
+	// SMAX_PS_Is_Broker_Formula__c: payload01.SMAX_PS_Is_Broker_Formula__c,
+	// Description__c: payload01.Description__c,
+	Item_Description__c: payload01.Item_Description__c,
+	// Location_Price_Book__c: payload01.Stericycle_Location__c,
+	Preview_Calculate_By__c: payload01.Preview_Calculate_By__c,
+	Preview_ID__c: payload01.Preview_ID__c,
+	Preview_UOM__c: payload01.Preview_UOM__c,
+	Price_Entry_Id__c: payload01.Price_Entry_Id__c,
+	// Price_Source__c: payload01.Price_Source__c,
+	Price__c: (payload01.Price__c + ((flowVars.priceIncrease*payload01.Price__c)/100)) as :number as :string{format : ".00"} as :number,
+	Product_Description__c: payload01.Product_Description__c,
+	Product_Family__c: payload01.Product_Family__c,
+	Product__c: payload01.Product__c,
+	Profile_Price_Entry_Description__c: payload01.Profile_Price_Entry_Description__c,
+	Profile_Special_Pricing__c: payload01.Profile_Special_Pricing__c as :boolean,
+	Stericycle_Location__c: payload01.Stericycle_Location__c,
+	UOM__c: payload01.UOM__c,
+	// Customer_Id__c: payload01.Customer_Id__c,
+	// SVMX_PS_Profile_Process_Code__c: payload01.SVMX_PS_Profile_Process_Code__c,
+	Project_Id__c: payload01.Project_Id__c,
+	Contract__c: payload01.Contract__c,
+	Threshold_Price__c: payload01.Threshold_Price__c,
+	Subscription_Price__c: payload01.Subscription_Price__c,
+	Minimum_Price__c: payload01.Minimum_Price__c,
+	Minimum_Bill_Qty__c: payload01.Minimum_Bill_Qty__c,
+	Active__c: true,
+	Pricing_Applied__c: payload01.Pricing_Applied__c,
+	Minimum_Type__c: payload01.Minimum_Type__c,
+	Current_Threshold_Value__c: payload01.Current_Threshold_Value__c,
+	Source__c: "Price Increase",
+	Verified__c: payload01.Verified__c as :boolean,
+	// Expiration_Date__c: payload01.Expiration_Date__c,
+	Segment__c: payload01.Segment__c,
+	// SKU__c: payload01.SKU__c,
+	Preview_SKU__c: payload01.Preview_SKU__c,
+	 (SubscriptionPriceEndDate__c:(( payload01.SubscriptionPriceEndDate__c ++ "T00:00:00") as :localdatetime {format: "yyyy-MM-dd'T'HH:mm:ss"})) when (payload01.SubscriptionPriceEndDate__c != null and payload01.SubscriptionPriceEndDate__c != "" ),
+	
+	(SubscriptionPriceStartDate__c:( (payload01.SubscriptionPriceStartDate__c ++ "T00:00:00") as :localdatetime {format: "yyyy-MM-dd'T'HH:mm:ss"})) when (payload01.SubscriptionPriceStartDate__c != null and payload01.SubscriptionPriceStartDate__c != "" ),
+	SubscriptionType__c: payload01.SubscriptionType__c,
+	// Zone__c: payload01.Zone__c,
+	Price_Increase__c: flowVars.priceIncrease 
+})]]></dw:set-payload>
+                            </dw:transform-message>
+                            <sfdc:create config-ref="Salesforce__Basic_Authentication" type="Price_Book_Entry__c" doc:name="Salesforce Create New Active SKU">
+                                <sfdc:objects ref="#[payload]"/>
+                            </sfdc:create>
+                            <foreach doc:name="For Each">
+                                <set-variable variableName="affectedCurrentRecord" value="#[payload]" doc:name="Variable - affectedCurrentRecord"/>
+                                <logger message="final records from salesforce" level="INFO" doc:name="Logger"/>
+                                <choice doc:name="Choice - check transaction status">
+                                    <when expression="#[payload.success == 'true']">
+                                        <sfdc:query config-ref="Salesforce__Basic_Authentication" query="dsql:SELECT Id,Price__c,Product_Family__c,Product_Name__c FROM Price_Book_Entry__c WHERE Id = '#[flowVars.affectedCurrentRecord.id]'" doc:name="Salesforce - query new sku id"/>
+                                        <logger level="INFO" doc:name="Logger -Success" message="transaction successfull"/>
+                                        <dw:transform-message doc:name="Transform Message  to CSV payload format">
+                                            <dw:set-payload><![CDATA[%dw 1.0
+%output application/json
+---
+{
+	"Status" : "Success",		
+    "Error":null,
+	'Sku Id': payload[0].Id,
+	'Customer Number': flowVars.currentRecord.'Customer Number',
+	'Account Name': flowVars.currentRecord.'Account Name',
+	'Percentage Increase': flowVars.currentRecord.'Percentage Increase',
+	'Price__c': payload[0].Price__c[0..5],
+	'Product_Family__c': payload[0].Product_Family__c,
+	'Categories Affected': flowVars.currentRecord.'Categories Affected',
+	'Categories Excluded': flowVars.currentRecord.'Categories Excluded',
+	'Specific item affected': flowVars.currentRecord.'Specific item affected',
+	'Specific item excluded': flowVars.currentRecord.'Specific item excluded'
+	
+}]]></dw:set-payload>
+                                        </dw:transform-message>
+                                        <logger level="INFO" doc:name="Logger"/>
+                                        <set-variable variableName="finalCSVOP" value="#[flowVars.finalCSVOP] , #[payload]" doc:name="Variable - finalCSVOP"/>
+                                    </when>
+                                    <otherwise>
+
+                                        <set-variable variableName="msg" value="&quot;&quot;" doc:name="Variable- msg"/>
+                                        <foreach collection="#[payload.errors]" doc:name="For Each">
+                                            <set-variable variableName="msg" value="#[flowVars.counter+1]. #[payload.message] : #[payload.statusCode]" doc:name="Variable - msg"/>
+                                        </foreach>
+                                        <logger message="transaction failed - #[flowVars.msg]" level="ERROR" doc:name="Logger"/>
+                                        <dw:transform-message doc:name="Transform Message  to CSV payload format">
+                                            <dw:set-payload><![CDATA[%dw 1.0
+%output application/json
+---
+{
+	"Status" : "Business Error",
+	"Error": flowVars.msg,
+	'Sku Id': flowVars.allIds[flowVars.counter - 1].Id,
+	'Customer Number': flowVars.currentRecord.'Customer Number',
+	'Account Name': flowVars.currentRecord.'Account Name',
+	'Percentage Increase': flowVars.currentRecord.'Percentage Increase',
+	'Price__c': flowVars.allIds[flowVars.counter - 1].Price__c,
+	'Product_Family__c': flowVars.allIds[flowVars.counter - 1].Product_Family__c,
+	'Categories Affected': flowVars.currentRecord.'Categories Affected',
+	'Categories Excluded': flowVars.currentRecord.'Categories Excluded',
+	'Specific item affected': flowVars.currentRecord.'Specific item affected',
+	'Specific item excluded': flowVars.currentRecord.'Specific item excluded'	
+}]]></dw:set-payload>
+                                        </dw:transform-message>
+                                        <set-variable variableName="finalCSVOP" value="#[flowVars.finalCSVOP] , #[payload]" doc:name="Variable- finalCSVOP"/>
+                                    </otherwise>
+                                </choice>
+                            </foreach>
+                        </when>
+                        <when expression="#[flowVars.currentRecord.'Percentage Increase'.substring((flowVars.currentRecord.'Percentage Increase'.indexOf(&quot;.&quot;) + 1),flowVars.currentRecord.'Percentage Increase'.length()).length() &gt; 2 and flowVars.currentRecord.'Percentage Increase' &lt; 100]">
+                            <dw:transform-message doc:name="Transform Message">
+                                <dw:set-payload><![CDATA[%dw 1.0
+%output application/json
+---
+{
+	"Status" : "Error",		
+    "Error": "Percentages decimal value more than two digits",
+	'SFDC ID': flowVars.currentRecord.'SFDC ID',
+	'Customer Number': flowVars.currentRecord.'Customer Number',
+	'Account Name': flowVars.currentRecord.'Account Name',
+	'Percentage Increase': flowVars.currentRecord.'Percentage Increase',
+	'Categories Affected': flowVars.currentRecord.'Categories Affected',
+	'Categories Excluded': flowVars.currentRecord.'Categories Excluded',
+	'Specific item affected': flowVars.currentRecord.'Specific item affected',
+	'Specific item excluded': flowVars.currentRecord.'Specific item excluded'
+	
+}]]></dw:set-payload>
+                            </dw:transform-message>
+                            <set-variable variableName="finalCSVOP" value="#[flowVars.finalCSVOP] , #[payload]" doc:name="Variable"/>
+                        </when>
+                        <otherwise>
+                            <dw:transform-message doc:name="Transform Message">
+                                <dw:set-payload><![CDATA[%dw 1.0
+%output application/json
+---
+{
+	"Status" : "Error",		
+    "Error": "Percentages more than 100",
+	'SFDC ID': flowVars.currentRecord.'SFDC ID',
+	'Customer Number': flowVars.currentRecord.'Customer Number',
+	'Account Name': flowVars.currentRecord.'Account Name',
+	'Percentage Increase': flowVars.currentRecord.'Percentage Increase',
+	'Categories Affected': flowVars.currentRecord.'Categories Affected',
+	'Categories Excluded': flowVars.currentRecord.'Categories Excluded',
+	'Specific item affected': flowVars.currentRecord.'Specific item affected',
+	'Specific item excluded': flowVars.currentRecord.'Specific item excluded'
+	
+}]]></dw:set-payload>
+                            </dw:transform-message>
+                            <set-variable variableName="finalCSVOP" value="#[flowVars.finalCSVOP] , #[payload]" doc:name="Variable"/>
+                        </otherwise>
+                    </choice>
+        </foreach>
+            </when>
+            <otherwise>
+                <dw:transform-message doc:name="Transform Message">
+                    <dw:set-payload><![CDATA[%dw 1.0
+%output application/json
+---
+{
+	"Status" : "Error",		
+    "Error": "No rows to process",
+	'SFDC ID': "",
+	'Customer Number': "",
+	'Account Name': "",
+	'Percentage Increase': "",
+	'Categories Affected': "",
+	'Categories Excluded': "",
+	'Specific item affected': "",
+	'Specific item excluded': ""
+	
+}]]></dw:set-payload>
+                </dw:transform-message>
+                <set-variable variableName="finalCSVOP" value="#[flowVars.finalCSVOP] , #[payload]" doc:name="Variable"/>
+            </otherwise>
+        </choice>
+
+
+        <set-payload value="[#[flowVars.finalCSVOP]]" mimeType="application/json" doc:name="Set Payload"/>
+        <dw:transform-message doc:name="Transform Message">
+            <dw:set-payload><![CDATA[%dw 1.0
+%output application/csv
+---
+payload - null]]></dw:set-payload>
+        </dw:transform-message>
+        <logger message="Writing output file." level="INFO" doc:name="Logger"/>
+        <file:outbound-endpoint path="\\stericorp.com\shares\SteriVision\Price Increase\Dev\Archive" connector-ref="File" responseTimeout="10000" doc:name="File - Output file" outputPattern="#[message.inboundProperties.originalFilename]"/>
+        <catch-exception-strategy doc:name="Catch Exception Strategy">
+            <set-variable variableName="exception" value="#[exception.message]" doc:name="Variable"/>
+
+            <dw:transform-message doc:name="Transform Message" metadata:id="45c73592-ede7-4a4c-bfa6-784dbc152ca1">
+                <dw:set-payload><![CDATA[%dw 1.0
+%output application/csv
+---
+[{
+	"Status" : "Error",
+	"Error": flowVars.exception,
+	'SFDC ID': flowVars.rowdata.'SFDC ID',
+	"Customer Number": flowVars.rowData."Customer Number",
+	"Account Name": flowVars.rowData."Account Name",
+	"Percentage Increase": flowVars.rowData."Percentage Increase",
+	"Categories Affected": flowVars.rowData."Categories Affected",
+	"Categories Excluded": flowVars.rowData."Categories Excluded",
+	"Specific item affected":  flowVars.rowData."Specific item affected",
+	"Specific item excluded": flowVars.rowData."Specific item excluded"
+	
+}]]]></dw:set-payload>
+            </dw:transform-message>
+            <file:outbound-endpoint path="\\stericorp.com\shares\SteriVision\Price Increase\Dev\Archive"  connector-ref="File" responseTimeout="10000" doc:name="File" outputPattern="#[message.inboundProperties.originalFilename]"/>
+        </catch-exception-strategy>
+    </flow>
+</mule>
